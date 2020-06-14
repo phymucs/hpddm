@@ -107,22 +107,25 @@ PETSC_EXTERN PetscErrorCode KSPHPDDM_Internal(const HPDDM::PETScOperator& A, int
       IS             row, col;
       PetscInt       ncol;
       const PetscInt *ia, *ja;
+      MatType        type;
       ierr = MatCreate(subcomm, &X);CHKERRQ(ierr);
       ierr = MatSetSizes(X, PETSC_DECIDE, PETSC_DECIDE, n, n);CHKERRQ(ierr);
-#if defined(PETSC_HAVE_ELEMENTAL)
-      ierr = MatSetType(X, b ? MATELEMENTAL : MATDENSE);CHKERRQ(ierr);
-#else
-      ierr = MatSetType(X, MATDENSE);CHKERRQ(ierr);
-#endif
       ierr = MatSetOptionsPrefix(X, std::string(A.prefix() + "ksp_hpddm_recycle_").c_str());CHKERRQ(ierr);
-      ierr = MatSetFromOptions(X);CHKERRQ(ierr);
+      ierr = PetscObjectOptionsBegin((PetscObject)X);CHKERRQ(ierr);
+#if defined(PETSC_HAVE_ELEMENTAL)
+      ierr = PetscOptionsFList("-mat_type", "Matrix type", "MatSetType", MatList, b ? MATELEMENTAL : MATDENSE, type, 256, nullptr);CHKERRQ(ierr);
+#else
+      ierr = PetscOptionsFList("-mat_type", "Matrix type", "MatSetType", MatList, MATDENSE, type, 256, nullptr);CHKERRQ(ierr);
+#endif
+      ierr = PetscOptionsEnd();CHKERRQ(ierr);
+      ierr = MatSetType(X, type);CHKERRQ(ierr);
       nrow = PETSC_DECIDE;
       ierr = PetscSplitOwnership(subcomm, &nrow, &n);CHKERRQ(ierr);
       ierr = MatMPIAIJSetPreallocation(X, nrow, nullptr, n - nrow, nullptr);CHKERRQ(ierr);
       ierr = MatMPIDenseSetPreallocation(X, nullptr);CHKERRQ(ierr);
+      ierr = MatSetUp(X);CHKERRQ(ierr);
       ierr = MatSetOption(X, MAT_NO_OFF_PROC_ENTRIES, PETSC_TRUE);CHKERRQ(ierr);
       ierr = MatSetOption(X, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_TRUE);CHKERRQ(ierr);
-      ierr = MatSetUp(X);CHKERRQ(ierr);
       if (b) {
         ierr = MatDuplicate(X, MAT_DO_NOT_COPY_VALUES, &Y);CHKERRQ(ierr);
         ierr = MatSetOption(Y, MAT_NO_OFF_PROC_ENTRIES, PETSC_TRUE);CHKERRQ(ierr);
