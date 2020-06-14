@@ -109,43 +109,74 @@ PETSC_EXTERN PetscErrorCode KSPHPDDM_Internal(const HPDDM::PETScOperator& A, int
       const PetscInt *ia, *ja;
       ierr = MatCreate(subcomm, &X);CHKERRQ(ierr);
       ierr = MatSetSizes(X, PETSC_DECIDE, PETSC_DECIDE, n, n);CHKERRQ(ierr);
-      // ierr = MatSetType(X, MATELEMENTAL);CHKERRQ(ierr);
+#if defined(PETSC_HAVE_ELEMENTAL)
+      ierr = MatSetType(X, b ? MATELEMENTAL : MATDENSE);CHKERRQ(ierr);
+#else
+      ierr = MatSetType(X, MATDENSE);CHKERRQ(ierr);
+#endif
       ierr = MatSetOptionsPrefix(X, std::string(A.prefix() + "ksp_hpddm_recycle_").c_str());CHKERRQ(ierr);
       ierr = MatSetFromOptions(X);CHKERRQ(ierr);
-      ierr = MatSetOption(X, MAT_NO_OFF_PROC_ENTRIES, PETSC_TRUE);CHKERRQ(ierr);
-      ierr = MatGetLocalSize(X, &nrow, &ncol);CHKERRQ(ierr);
+      nrow = PETSC_DECIDE;
+      ierr = PetscSplitOwnership(subcomm, &nrow, &n);CHKERRQ(ierr);
       ierr = MatMPIAIJSetPreallocation(X, nrow, nullptr, n - nrow, nullptr);CHKERRQ(ierr);
+      ierr = MatMPIDenseSetPreallocation(X, nullptr);CHKERRQ(ierr);
+      ierr = MatSetOption(X, MAT_NO_OFF_PROC_ENTRIES, PETSC_TRUE);CHKERRQ(ierr);
+      ierr = MatSetOption(X, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_TRUE);CHKERRQ(ierr);
       ierr = MatSetUp(X);CHKERRQ(ierr);
       if (b) {
-        ierr = MatDuplicate(X, MAT_SHARE_NONZERO_PATTERN, &Y);CHKERRQ(ierr);
-        ierr = MatSetOption(Y, MAT_NO_OFF_PROC_ENTRIES, PETSC_FALSE);CHKERRQ(ierr);
+        ierr = MatDuplicate(X, MAT_DO_NOT_COPY_VALUES, &Y);CHKERRQ(ierr);
+        ierr = MatSetOption(Y, MAT_NO_OFF_PROC_ENTRIES, PETSC_TRUE);CHKERRQ(ierr);
+        ierr = MatSetOption(Y, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_TRUE);CHKERRQ(ierr);
       }
-      ierr = MatGetOwnershipIS(X, &row, &col);CHKERRQ(ierr);
-      ierr = ISGetLocalSize(row, &nrow);CHKERRQ(ierr);
-      ierr = ISGetIndices(row, &ia);CHKERRQ(ierr);
-      ierr = ISGetLocalSize(col, &ncol);CHKERRQ(ierr);
-      ierr = ISGetIndices(col, &ja);CHKERRQ(ierr);
-      for (PetscInt j = 0; j < ncol; ++j) {
-        for (PetscInt i = 0; i < nrow; ++i) {
-          ierr = MatSetValues(X, 1, ia + i, 1, ja + j, a + ia[i] + ja[j] * lda, INSERT_VALUES);CHKERRQ(ierr);
-          if (b) {
-            ierr = MatSetValues(Y, 1, ia + i, 1, ja + j, b + ia[i] + ja[j] * ldb, INSERT_VALUES);CHKERRQ(ierr);
+      if (std::string(reinterpret_cast<PetscObject>(X)->type_name).compare(MATMPIDENSE) != 0) {
+        ierr = MatGetOwnershipIS(X, &row, &col);CHKERRQ(ierr);
+        ierr = ISGetLocalSize(row, &nrow);CHKERRQ(ierr);
+        ierr = ISGetIndices(row, &ia);CHKERRQ(ierr);
+        ierr = ISGetLocalSize(col, &ncol);CHKERRQ(ierr);
+        ierr = ISGetIndices(col, &ja);CHKERRQ(ierr);
+        for (PetscInt j = 0; j < ncol; ++j) {
+          for (PetscInt i = 0; i < nrow; ++i) {
+            if (std::abs(a[ia[i] + ja[j] * lda]) > std::numeric_limits<HPDDM::underlying_type<PetscScalar>>::epsilon()) {
+              ierr = MatSetValues(X, 1, ia + i, 1, ja + j, a + ia[i] + ja[j] * lda, INSERT_VALUES);CHKERRQ(ierr);
+            }
+            if (b && std::abs(b[ia[i] + ja[j] * ldb]) > std::numeric_limits<HPDDM::underlying_type<PetscScalar>>::epsilon()) {
+              ierr = MatSetValues(Y, 1, ia + i, 1, ja + j, b + ia[i] + ja[j] * ldb, INSERT_VALUES);CHKERRQ(ierr);
+            }
           }
         }
+        ierr = ISRestoreIndices(col, &ja);CHKERRQ(ierr);
+        ierr = ISRestoreIndices(row, &ia);CHKERRQ(ierr);
+        ierr = ISDestroy(&row);CHKERRQ(ierr);
+        ierr = ISDestroy(&col);CHKERRQ(ierr);
+        ierr = MatCreateVecs(X, nullptr, &Vr);CHKERRQ(ierr);
+        ierr = VecGetLocalSize(Vr, &nrow);CHKERRQ(ierr);
+        ierr = VecGetOwnershipRange(Vr, &rbegin, nullptr);CHKERRQ(ierr);
+      } else {
+        Mat loc;
+        ierr = MatGetOwnershipRange(X, &rbegin, nullptr);CHKERRQ(ierr);
+        ierr = MatDenseGetLocalMatrix(X, &loc);CHKERRQ(ierr);
+#if PETSC_VERSION_GE(3, 14, 0)
+        ierr = MatDenseSetLDA(loc, lda);CHKERRQ(ierr);
+#else
+        ierr = MatSeqDenseSetLDA(loc, lda);CHKERRQ(ierr);
+#endif
+        ierr = MatDensePlaceArray(loc, a + rbegin);CHKERRQ(ierr);
+        if (b) {
+          ierr = MatDenseGetLocalMatrix(Y, &loc);CHKERRQ(ierr);
+#if PETSC_VERSION_GE(3, 14, 0)
+          ierr = MatDenseSetLDA(loc, ldb);CHKERRQ(ierr);
+#else
+          ierr = MatSeqDenseSetLDA(loc, ldb);CHKERRQ(ierr);
+#endif
+          ierr = MatDensePlaceArray(loc, b + rbegin);CHKERRQ(ierr);
+        }
       }
-      ierr = ISRestoreIndices(col, &ja);CHKERRQ(ierr);
-      ierr = ISRestoreIndices(row, &ia);CHKERRQ(ierr);
-      ierr = ISDestroy(&row);CHKERRQ(ierr);
-      ierr = ISDestroy(&col);CHKERRQ(ierr);
       ierr = MatAssemblyBegin(X, MAT_FINAL_ASSEMBLY);CHKERRQ(ierr);
       ierr = MatAssemblyEnd(X, MAT_FINAL_ASSEMBLY);CHKERRQ(ierr);
       if (b) {
         ierr = MatAssemblyBegin(Y, MAT_FINAL_ASSEMBLY);CHKERRQ(ierr);
         ierr = MatAssemblyEnd(Y, MAT_FINAL_ASSEMBLY);CHKERRQ(ierr);
       }
-      ierr = MatCreateVecs(X, nullptr, &Vr);CHKERRQ(ierr);
-      ierr = VecGetLocalSize(Vr, &nrow);CHKERRQ(ierr);
-      ierr = VecGetOwnershipRange(Vr, &rbegin, nullptr);CHKERRQ(ierr);
     }
   }
   if (X) {
@@ -161,7 +192,7 @@ PETSC_EXTERN PetscErrorCode KSPHPDDM_Internal(const HPDDM::PETScOperator& A, int
     ierr = EPSSolve(eps);CHKERRQ(ierr);
     ierr = EPSGetConverged(eps, &nconv);CHKERRQ(ierr);
     if (!Vr) {
-      ierr = VecCreateSeqWithArray(PETSC_COMM_SELF, 1, n, nullptr, &Vr);CHKERRQ(ierr);
+      ierr = VecCreateMPIWithArray(PetscObjectComm((PetscObject)X), 1, nrow, n, nullptr, &Vr);CHKERRQ(ierr);
     }
     if (std::is_same<PetscReal, PetscScalar>::value) {
       ierr = VecCreateMPIWithArray(PetscObjectComm((PetscObject)X), 1, nrow, n, nullptr, &Vi);CHKERRQ(ierr);

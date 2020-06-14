@@ -532,8 +532,14 @@ inline int IterativeMethod::BGCRODR(const Operator& A, const K* const b, K* cons
     K* U = A.storage(), *C = nullptr;
     if(U) {
         std::pair<unsigned short, unsigned short> storage = A.k();
-        k = (storage.first >= mu ? storage.second : (storage.second * storage.first) / mu);
-        C = U + storage.first * storage.second * n;
+        if(storage.second * storage.first < mu) {
+            const_cast<Operator&>(A).destroy();
+            U = nullptr;
+        }
+        else {
+            k = (storage.first >= mu ? storage.second : (storage.second * storage.first) / mu);
+            C = U + storage.first * storage.second * n;
+        }
     }
     int lwork = mu * (d ? (n + (id[1] == HPDDM_VARIANT_RIGHT ? std::max(n, ldh) : ldh)) : std::max((id[1] == HPDDM_VARIANT_RIGHT ? 2 : 1) * n, ldh));
     *H = new K[lwork + (d && U && id[1] == HPDDM_VARIANT_RIGHT && id[4] / 4 == 0 ? mu * n * std::max(2 * k - m[1] - 2, 0) : 0) + mu * ((m[1] + 1) * ldh + n * (m[1] * (id[1] == HPDDM_VARIANT_FLEXIBLE ? 2 : 1) + 1) + 2 * m[1]) + (Wrapper<K>::is_complex ? (mu + 1) / 2 : mu)];
