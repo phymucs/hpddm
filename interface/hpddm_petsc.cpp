@@ -107,7 +107,7 @@ PETSC_EXTERN PetscErrorCode KSPHPDDM_Internal(const HPDDM::PETScOperator& A, int
       IS             row, col;
       PetscInt       ncol;
       const PetscInt *ia, *ja;
-      MatType        type;
+      char           type[256];
       ierr = MatCreate(subcomm, &X);CHKERRQ(ierr);
       ierr = MatSetSizes(X, PETSC_DECIDE, PETSC_DECIDE, n, n);CHKERRQ(ierr);
       ierr = MatSetOptionsPrefix(X, std::string(A.prefix() + "ksp_hpddm_recycle_").c_str());CHKERRQ(ierr);
@@ -118,18 +118,21 @@ PETSC_EXTERN PetscErrorCode KSPHPDDM_Internal(const HPDDM::PETScOperator& A, int
       ierr = PetscOptionsFList("-mat_type", "Matrix type", "MatSetType", MatList, MATDENSE, type, 256, nullptr);CHKERRQ(ierr);
 #endif
       ierr = PetscOptionsEnd();CHKERRQ(ierr);
-      ierr = MatSetType(X, type);CHKERRQ(ierr);
       nrow = PETSC_DECIDE;
       ierr = PetscSplitOwnership(subcomm, &nrow, &n);CHKERRQ(ierr);
-      ierr = MatMPIAIJSetPreallocation(X, nrow, nullptr, n - nrow, nullptr);CHKERRQ(ierr);
-      ierr = MatMPIDenseSetPreallocation(X, nullptr);CHKERRQ(ierr);
-      ierr = MatSetUp(X);CHKERRQ(ierr);
-      ierr = MatSetOption(X, MAT_NO_OFF_PROC_ENTRIES, PETSC_TRUE);CHKERRQ(ierr);
-      ierr = MatSetOption(X, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_TRUE);CHKERRQ(ierr);
       if (b) {
-        ierr = MatDuplicate(X, MAT_DO_NOT_COPY_VALUES, &Y);CHKERRQ(ierr);
-        ierr = MatSetOption(Y, MAT_NO_OFF_PROC_ENTRIES, PETSC_TRUE);CHKERRQ(ierr);
-        ierr = MatSetOption(Y, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_TRUE);CHKERRQ(ierr);
+        ierr = MatCreate(subcomm, &Y);CHKERRQ(ierr);
+        ierr = MatSetSizes(Y, PETSC_DECIDE, PETSC_DECIDE, n, n);CHKERRQ(ierr);
+      }
+      for(const Mat& m : { X, Y }) {
+        if(m == Y && !b)
+          continue;
+        ierr = MatSetType(m, type);CHKERRQ(ierr);
+        ierr = MatMPIAIJSetPreallocation(m, nrow, nullptr, n - nrow, nullptr);CHKERRQ(ierr);
+        ierr = MatMPIDenseSetPreallocation(m, m == X ? a : b);CHKERRQ(ierr);
+        ierr = MatSetUp(m);CHKERRQ(ierr);
+        ierr = MatSetOption(m, MAT_NO_OFF_PROC_ENTRIES, PETSC_TRUE);CHKERRQ(ierr);
+        ierr = MatSetOption(m, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_TRUE);CHKERRQ(ierr);
       }
       if (std::string(reinterpret_cast<PetscObject>(X)->type_name).compare(MATMPIDENSE) != 0) {
         ierr = MatGetOwnershipIS(X, &row, &col);CHKERRQ(ierr);
@@ -158,6 +161,7 @@ PETSC_EXTERN PetscErrorCode KSPHPDDM_Internal(const HPDDM::PETScOperator& A, int
         Mat loc;
         ierr = MatGetOwnershipRange(X, &rbegin, nullptr);CHKERRQ(ierr);
         ierr = MatDenseGetLocalMatrix(X, &loc);CHKERRQ(ierr);
+        ierr = MatDenseResetArray(loc);CHKERRQ(ierr);
 #if PETSC_VERSION_GE(3, 14, 0)
         ierr = MatDenseSetLDA(loc, lda);CHKERRQ(ierr);
 #else
@@ -166,6 +170,7 @@ PETSC_EXTERN PetscErrorCode KSPHPDDM_Internal(const HPDDM::PETScOperator& A, int
         ierr = MatDensePlaceArray(loc, a + rbegin);CHKERRQ(ierr);
         if (b) {
           ierr = MatDenseGetLocalMatrix(Y, &loc);CHKERRQ(ierr);
+          ierr = MatDenseResetArray(loc);CHKERRQ(ierr);
 #if PETSC_VERSION_GE(3, 14, 0)
           ierr = MatDenseSetLDA(loc, ldb);CHKERRQ(ierr);
 #else
