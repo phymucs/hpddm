@@ -63,7 +63,7 @@ PETSC_EXTERN PetscErrorCode PetscDLLibraryRegister_hpddm_petsc(void)
 }
 #endif
 
-PETSC_EXTERN PetscErrorCode KSPHPDDM_Internal(const char* prefix, const MPI_Comm& comm, PetscMPIInt redistribute, int n, PetscScalar* a, int lda, PetscScalar* b, int ldb, int k, PetscScalar* vr)
+PETSC_EXTERN PetscErrorCode KSPHPDDM_Internal(const char* prefix, const MPI_Comm& comm, PetscMPIInt redistribute, PetscInt n, PetscScalar* a, int lda, PetscScalar* b, int ldb, PetscInt k, PetscScalar* vr)
 {
   EPS            eps;
   Mat            X = nullptr, Y = nullptr;

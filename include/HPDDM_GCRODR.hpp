@@ -24,7 +24,7 @@
 #define _HPDDM_GCRODR_
 
 #if defined(PETSC_HAVE_SLEPC) && defined(PETSC_USE_SHARED_LIBRARIES)
-static PetscErrorCode (*loadedKSPSym)(const char*, const MPI_Comm&, PetscMPIInt, int, PetscScalar*, int, PetscScalar*, int, int, PetscScalar*) = nullptr;
+static PetscErrorCode (*loadedKSPSym)(const char*, const MPI_Comm&, PetscMPIInt, PetscInt, PetscScalar*, int, PetscScalar*, int, PetscInt, PetscScalar*) = nullptr;
 #endif
 
 #include "HPDDM_GMRES.hpp"
@@ -810,7 +810,7 @@ inline int IterativeMethod::BGCRODR(const Operator& A, const K* const b, K* cons
 #else
                             static_cast<PetscMPIInt>(reinterpret_cast<KSP_HPDDM*>(A._ksp->data)->cntl[3])
 #endif
-                             , dim, *H, ldh, nullptr, 0, bK, vr);HPDDM_CHKERRQ(ierr)
+                             , static_cast<PetscInt>(dim), *H, ldh, nullptr, 0, static_cast<PetscInt>(bK), vr);HPDDM_CHKERRQ(ierr)
 #endif
                     Blas<K>::gemm("N", "N", &n, &bK, &dim, &(Wrapper<K>::d__1), v[id[1] == HPDDM_VARIANT_FLEXIBLE ? m[1] + 1 : 0], &n, vr, &dim, &(Wrapper<K>::d__0), U, &n);
                     Blas<K>::gemm("N", "N", &row, &bK, &dim, &(Wrapper<K>::d__1), *save, &ldh, vr, &dim, &(Wrapper<K>::d__0), *H, &ldh);
@@ -930,7 +930,7 @@ inline int IterativeMethod::BGCRODR(const Operator& A, const K* const b, K* cons
 #else
                             static_cast<PetscMPIInt>(reinterpret_cast<KSP_HPDDM*>(A._ksp->data)->cntl[3])
 #endif
-                             , bDim, a, bDim, B, row, bK, vr);HPDDM_CHKERRQ(ierr)
+                             , static_cast<PetscInt>(bDim), a, bDim, B, row, static_cast<PetscInt>(bK), vr);HPDDM_CHKERRQ(ierr)
                     int* perm = new int[1];
                     K* work = new K[2];
 #endif
