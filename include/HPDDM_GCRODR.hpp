@@ -24,7 +24,7 @@
 #define _HPDDM_GCRODR_
 
 #if defined(PETSC_HAVE_SLEPC) && defined(PETSC_USE_SHARED_LIBRARIES)
-static PetscErrorCode (*loadedKSPSym)(const HPDDM::PETScOperator&, int, PetscScalar*, int, PetscScalar*, int, int, PetscScalar*) = nullptr;
+static PetscErrorCode (*loadedKSPSym)(const char*, const MPI_Comm&, PetscMPIInt, int, PetscScalar*, int, PetscScalar*, int, int, PetscScalar*) = nullptr;
 #endif
 
 #include "HPDDM_GMRES.hpp"
@@ -804,7 +804,13 @@ inline int IterativeMethod::BGCRODR(const Operator& A, const K* const b, K* cons
                         if(!loadedKSPSym)
                             return PetscError(PETSC_COMM_SELF, __LINE__, PETSC_FUNCTION_NAME, __FILE__, -PETSC_ERR_PLIB, PETSC_ERROR_REPEAT, "KSPHPDDM_Internal symbol not found in loaded libhpddm_petsc");
                     }
-                    ierr = (*loadedKSPSym)(A, dim, *H, ldh, nullptr, 0, bK, vr);HPDDM_CHKERRQ(ierr)
+                    ierr = (*loadedKSPSym)(std::string(A.prefix() + "ksp_hpddm_recycle_").c_str(), comm,
+#if !defined(_KSPIMPL_H)
+                            1
+#else
+                            static_cast<PetscMPIInt>(reinterpret_cast<KSP_HPDDM*>(A._ksp->data)->cntl[3])
+#endif
+                             , dim, *H, ldh, nullptr, 0, bK, vr);HPDDM_CHKERRQ(ierr)
 #endif
                     Blas<K>::gemm("N", "N", &n, &bK, &dim, &(Wrapper<K>::d__1), v[id[1] == HPDDM_VARIANT_FLEXIBLE ? m[1] + 1 : 0], &n, vr, &dim, &(Wrapper<K>::d__0), U, &n);
                     Blas<K>::gemm("N", "N", &row, &bK, &dim, &(Wrapper<K>::d__1), *save, &ldh, vr, &dim, &(Wrapper<K>::d__0), *H, &ldh);
@@ -918,7 +924,13 @@ inline int IterativeMethod::BGCRODR(const Operator& A, const K* const b, K* cons
                         if(!loadedKSPSym)
                             return PetscError(PETSC_COMM_SELF, __LINE__, PETSC_FUNCTION_NAME, __FILE__, -PETSC_ERR_PLIB, PETSC_ERROR_REPEAT, "KSPHPDDM_Internal symbol not found in loaded libhpddm_petsc");
                     }
-                    ierr = (*loadedKSPSym)(A, bDim, a, bDim, B, row, bK, vr);HPDDM_CHKERRQ(ierr)
+                    ierr = (*loadedKSPSym)(std::string(A.prefix() + "ksp_hpddm_recycle_").c_str(), comm,
+#if !defined(_KSPIMPL_H)
+                            1
+#else
+                            static_cast<PetscMPIInt>(reinterpret_cast<KSP_HPDDM*>(A._ksp->data)->cntl[3])
+#endif
+                             , bDim, a, bDim, B, row, bK, vr);HPDDM_CHKERRQ(ierr)
                     int* perm = new int[1];
                     K* work = new K[2];
 #endif

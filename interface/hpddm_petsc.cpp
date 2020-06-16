@@ -63,18 +63,17 @@ PETSC_EXTERN PetscErrorCode PetscDLLibraryRegister_hpddm_petsc(void)
 }
 #endif
 
-PETSC_EXTERN PetscErrorCode KSPHPDDM_Internal(const HPDDM::PETScOperator& A, int n, PetscScalar* a, int lda, PetscScalar* b, int ldb, int k, PetscScalar* vr)
+PETSC_EXTERN PetscErrorCode KSPHPDDM_Internal(const char* prefix, const MPI_Comm& comm, PetscMPIInt redistribute, int n, PetscScalar* a, int lda, PetscScalar* b, int ldb, int k, PetscScalar* vr)
 {
-  EPS               eps;
-  Mat               X = nullptr, Y = nullptr;
-  Vec               Vr = nullptr, Vi;
-  PetscInt          nconv, i, nrow = n, rbegin = 0;
-  PetscBLASInt      info;
-  const PetscMPIInt redistribute = static_cast<PetscMPIInt>(reinterpret_cast<KSP_HPDDM*>(A._ksp->data)->cntl[3]);
-  PetscMPIInt       rank, size;
-  MPI_Comm          subcomm;
-  MPI_Group         world, worker;
-  PetscErrorCode    ierr;
+  EPS            eps;
+  Mat            X = nullptr, Y = nullptr;
+  Vec            Vr = nullptr, Vi;
+  PetscInt       nconv, i, nrow = n, rbegin = 0;
+  PetscBLASInt   info;
+  PetscMPIInt    rank, size;
+  MPI_Comm       subcomm;
+  MPI_Group      world, worker;
+  PetscErrorCode ierr;
 
   PetscFunctionBegin;
   if (redistribute <= 1) {
@@ -93,14 +92,14 @@ PETSC_EXTERN PetscErrorCode KSPHPDDM_Internal(const HPDDM::PETScOperator& A, int
 #endif
     }
   } else {
-    ierr = MPI_Comm_rank(PetscObjectComm((PetscObject)A._ksp), &rank);CHKERRQ(ierr);
-    ierr = MPI_Comm_size(PetscObjectComm((PetscObject)A._ksp), &size);CHKERRQ(ierr);
-    ierr = MPI_Comm_group(PetscObjectComm((PetscObject)A._ksp), &world);CHKERRQ(ierr);
+    ierr = MPI_Comm_rank(comm, &rank);CHKERRQ(ierr);
+    ierr = MPI_Comm_size(comm, &size);CHKERRQ(ierr);
+    ierr = MPI_Comm_group(comm, &world);CHKERRQ(ierr);
     PetscMPIInt* ranks = new PetscMPIInt[redistribute];
     std::iota(ranks, ranks + redistribute, 0);
     ierr = MPI_Group_incl(world, redistribute, ranks, &worker);CHKERRQ(ierr);
     delete [] ranks;
-    ierr = MPI_Comm_create(PetscObjectComm((PetscObject)A._ksp), worker, &subcomm);
+    ierr = MPI_Comm_create(comm, worker, &subcomm);
     ierr = MPI_Group_free(&worker);CHKERRQ(ierr);
     ierr = MPI_Group_free(&world);CHKERRQ(ierr);
     if (subcomm != MPI_COMM_NULL) {
@@ -110,7 +109,7 @@ PETSC_EXTERN PetscErrorCode KSPHPDDM_Internal(const HPDDM::PETScOperator& A, int
       char           type[256];
       ierr = MatCreate(subcomm, &X);CHKERRQ(ierr);
       ierr = MatSetSizes(X, PETSC_DECIDE, PETSC_DECIDE, n, n);CHKERRQ(ierr);
-      ierr = MatSetOptionsPrefix(X, std::string(A.prefix() + "ksp_hpddm_recycle_").c_str());CHKERRQ(ierr);
+      ierr = MatSetOptionsPrefix(X, prefix);CHKERRQ(ierr);
       ierr = PetscObjectOptionsBegin((PetscObject)X);CHKERRQ(ierr);
 #if defined(PETSC_HAVE_ELEMENTAL)
       ierr = PetscOptionsFList("-mat_type", "Matrix type", "MatSetType", MatList, b ? MATELEMENTAL : MATDENSE, type, 256, nullptr);CHKERRQ(ierr);
@@ -195,7 +194,7 @@ PETSC_EXTERN PetscErrorCode KSPHPDDM_Internal(const HPDDM::PETScOperator& A, int
     }
     ierr = EPSSetWhichEigenpairs(eps, EPS_SMALLEST_MAGNITUDE);CHKERRQ(ierr);
     ierr = EPSSetDimensions(eps, k, PETSC_DEFAULT, PETSC_DEFAULT);CHKERRQ(ierr);
-    ierr = EPSSetOptionsPrefix(eps, std::string(A.prefix() + "ksp_hpddm_recycle_").c_str());CHKERRQ(ierr);
+    ierr = EPSSetOptionsPrefix(eps, prefix);CHKERRQ(ierr);
     ierr = EPSSetFromOptions(eps);CHKERRQ(ierr);
     ierr = EPSSolve(eps);CHKERRQ(ierr);
     ierr = EPSGetConverged(eps, &nconv);CHKERRQ(ierr);
@@ -236,7 +235,7 @@ PETSC_EXTERN PetscErrorCode KSPHPDDM_Internal(const HPDDM::PETScOperator& A, int
     }
   }
   if (redistribute > 1 && redistribute < size) {
-    ierr = MPI_Bcast(vr, n * k, HPDDM::Wrapper<PetscScalar>::mpi_type(), 0, PetscObjectComm((PetscObject)A._ksp));CHKERRQ(ierr);
+    ierr = MPI_Bcast(vr, n * k, HPDDM::Wrapper<PetscScalar>::mpi_type(), 0, comm);CHKERRQ(ierr);
   }
   PetscFunctionReturn(0);
 }
