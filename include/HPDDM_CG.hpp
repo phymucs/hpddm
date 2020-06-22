@@ -65,7 +65,7 @@ inline int IterativeMethod::CG(const Operator& A, const K* const b, K* const x, 
     ierr = A.template apply<excluded>(r, p, mu, z);HPDDM_CHKERRQ(ierr);
 #if defined(_KSPIMPL_H)
     underlying_type<K>* norm = new underlying_type<K>[mu];
-    ierr = A.template apply<excluded>(b, z, mu, trash);HPDDM_CHKERRQ(ierr);
+    ierr = A.template apply<excluded>(b, z, mu, trash);CHKERRQ(ierr);
     Wrapper<K>::diag(n, d, z, trash, mu);
     for(unsigned short nu = 0; nu < mu; ++nu)
         norm[nu] = std::real(Blas<K>::dot(&n, z + n * nu, &i__1, trash + n * nu, &i__1));
@@ -82,16 +82,16 @@ inline int IterativeMethod::CG(const Operator& A, const K* const b, K* const x, 
         *norm = *dir / *norm;
         for(unsigned short nu = 1; nu < mu; ++nu)
             *norm = std::max(*norm, dir[nu] / norm[nu]);
-        ierr = KSPLogResidualHistory(A._ksp, *norm);HPDDM_CHKERRQ(ierr);
-        ierr = KSPMonitor(A._ksp, 0, *norm);HPDDM_CHKERRQ(ierr);
+        ierr = KSPLogResidualHistory(A._ksp, *norm);CHKERRQ(ierr);
+        ierr = KSPMonitor(A._ksp, 0, *norm);CHKERRQ(ierr);
     }
     else {
         for(unsigned short nu = 0; nu < mu; ++nu)
             if(res[nu] / norm[nu] < HPDDM_TOL(tol, A))
                 dir[nu] = std::numeric_limits<underlying_type<K>>::epsilon() / 1000.0;
         *norm = *std::max_element(res, res + mu);
-        ierr = KSPLogResidualHistory(A._ksp, *norm);HPDDM_CHKERRQ(ierr);
-        ierr = KSPMonitor(A._ksp, 0, *norm);HPDDM_CHKERRQ(ierr);
+        ierr = KSPLogResidualHistory(A._ksp, *norm);CHKERRQ(ierr);
+        ierr = KSPMonitor(A._ksp, 0, *norm);CHKERRQ(ierr);
     }
     delete [] norm;
 #endif
@@ -150,11 +150,11 @@ inline int IterativeMethod::CG(const Operator& A, const K* const b, K* const x, 
                 Wrapper<K>::diag(n, d, p, trash, mu);
             }
             std::for_each(dir, dir + mu, [](underlying_type<K>& d) { d = std::sqrt(d); });
+            checkConvergence<2>(HPDDM_VERB(id), i, i, HPDDM_TOL(tol, A), mu, res, dir, hasConverged, HPDDM_MAX_IT(it, A));
 #if HPDDM_PETSC
-            ierr = KSPLogResidualHistory(A._ksp, *dir);HPDDM_CHKERRQ(ierr);
+            ierr = KSPLogResidualHistory(A._ksp, *dir);CHKERRQ(ierr);
             ierr = KSPMonitor(A._ksp, i, *dir);CHKERRQ(ierr);
 #endif
-            checkConvergence<2>(HPDDM_VERB(id), i, i, HPDDM_TOL(tol, A), mu, res, dir, hasConverged, HPDDM_MAX_IT(it, A));
             if(std::find(hasConverged, hasConverged + mu, -HPDDM_MAX_IT(it, A)) == hasConverged + mu) {
                 --i;
                 break;
@@ -190,7 +190,7 @@ inline int IterativeMethod::BCG(const Operator& A, const K* const b, K* const x,
         options<3>(A, &tol, nullptr, m, id);
         if(opt.val<char>(prefix + "variant", HPDDM_VARIANT_LEFT) == HPDDM_VARIANT_FLEXIBLE)
             return CG<excluded>(A, b, x, mu, comm);
-        m[1] = opt.val<unsigned short>(prefix + "enlarge_krylov_subspace", 1);
+        m[0] = opt.val<unsigned short>(prefix + "enlarge_krylov_subspace", 1);
     }
 #else
     unsigned short* m = reinterpret_cast<KSP_HPDDM*>(A._ksp->data)->scntl;
@@ -252,10 +252,8 @@ inline int IterativeMethod::BCG(const Operator& A, const K* const b, K* const x,
         *norm = Blas<K>::nrm2(&(info = m[0]), z, &i__1);
     }
 #if defined(_KSPIMPL_H)
-    {
-        ierr = KSPLogResidualHistory(A._ksp, *std::max_element(norm, norm + (m[0] <= 1 ? mu : 1)));HPDDM_CHKERRQ(ierr);
-        ierr = KSPMonitor(A._ksp, 0, *std::max_element(norm, norm + (m[0] <= 1 ? mu : 1)));HPDDM_CHKERRQ(ierr);
-    }
+    ierr = KSPLogResidualHistory(A._ksp, *std::max_element(norm, norm + (m[0] <= 1 ? mu : 1)));CHKERRQ(ierr);
+    ierr = KSPMonitor(A._ksp, 0, *std::max_element(norm, norm + (m[0] <= 1 ? mu : 1)));CHKERRQ(ierr);
 #endif
     HPDDM_IT(i, A) = 1;
     while(HPDDM_IT(i, A) <= HPDDM_MAX_IT(m[1], A)) {
@@ -309,14 +307,8 @@ inline int IterativeMethod::BCG(const Operator& A, const K* const b, K* const x,
         MPI_Allreduce(MPI_IN_PLACE, rhs - mu / (m[0] <= 1 ? mu : 1), mu / (m[0] <= 1 ? mu : 1) + (mu * (mu + 1)) / 2, Wrapper<K>::mpi_type(), MPI_SUM, comm);
         const bool converged = (mu == checkBlockConvergence<3>(HPDDM_VERB(id), HPDDM_IT(i, A), HPDDM_TOL(tol, A), mu, mu, norm, rho + 2 * mu * mu - mu / (m[0] <= 1 ? mu : 1), 0, trash, (m[0] <= 1 ? mu : 1)));
 #if defined(_KSPIMPL_H)
-        {
-            underlying_type<K>* norm = reinterpret_cast<underlying_type<K>*>(trash);
-            underlying_type<K> max = std::abs(norm[0]);
-            for(unsigned short nu = 1; nu < (m[0] <= 1 ? mu : 1); ++nu)
-                max = std::max(max, std::abs(norm[nu]));
-            ierr = KSPLogResidualHistory(A._ksp, max);HPDDM_CHKERRQ(ierr);
-            ierr = KSPMonitor(A._ksp, HPDDM_IT(j, A), max);HPDDM_CHKERRQ(ierr);
-        }
+        ierr = KSPLogResidualHistory(A._ksp, *std::max_element(norm, norm + (m[0] <= 1 ? mu : 1)));CHKERRQ(ierr);
+        ierr = KSPMonitor(A._ksp, HPDDM_IT(j, A), *std::max_element(norm, norm + (m[0] <= 1 ? mu : 1)));CHKERRQ(ierr);
 #endif
         if(converged)
             break;
@@ -423,10 +415,8 @@ inline int IterativeMethod::BFBCG(const Operator& A, const K* const b, K* const 
             Lapack<underlying_type<K>>::lapmt(&i__1, &i__1, &mu, norm, &i__1, piv);
     }
 #if defined(_KSPIMPL_H)
-    {
-        ierr = KSPLogResidualHistory(A._ksp, *std::max_element(norm, norm + (m[0] <= 1 ? mu : 1)));HPDDM_CHKERRQ(ierr);
-        ierr = KSPMonitor(A._ksp, 0, *std::max_element(norm, norm + (m[0] <= 1 ? mu : 1)));HPDDM_CHKERRQ(ierr);
-    }
+    ierr = KSPLogResidualHistory(A._ksp, *std::max_element(norm, norm + (m[0] <= 1 ? mu : 1)));CHKERRQ(ierr);
+    ierr = KSPMonitor(A._ksp, 0, *std::max_element(norm, norm + (m[0] <= 1 ? mu : 1)));CHKERRQ(ierr);
 #endif
     HPDDM_IT(i, A) = (deflated != 0 ? 1 : 0);
     while(HPDDM_IT(i, A) <= HPDDM_MAX_IT(m[1], A) && deflated != 0) {
@@ -472,14 +462,8 @@ inline int IterativeMethod::BFBCG(const Operator& A, const K* const b, K* const 
         MPI_Allreduce(MPI_IN_PLACE, alpha, deflated * mu + mu / m[0], Wrapper<K>::mpi_type(), MPI_SUM, comm);
         bool const converged = (mu == checkBlockConvergence<6>(HPDDM_VERB(id), HPDDM_IT(i, A), HPDDM_TOL(tol[1], A), mu, deflated, norm, res, 0, trash, m[0]));
 #if defined(_KSPIMPL_H)
-        {
-            underlying_type<K>* norm = reinterpret_cast<underlying_type<K>*>(trash);
-            underlying_type<K> max = std::abs(norm[0]);
-            for(unsigned short nu = 1; nu < (m[0] <= 1 ? mu : 1); ++nu)
-                max = std::max(max, std::abs(norm[nu]));
-            ierr = KSPLogResidualHistory(A._ksp, max);HPDDM_CHKERRQ(ierr);
-            ierr = KSPMonitor(A._ksp, HPDDM_IT(j, A), max);HPDDM_CHKERRQ(ierr);
-        }
+        ierr = KSPLogResidualHistory(A._ksp, *std::max_element(norm, norm + (m[0] <= 1 ? mu : 1)));CHKERRQ(ierr);
+        ierr = KSPMonitor(A._ksp, HPDDM_IT(j, A), *std::max_element(norm, norm + (m[0] <= 1 ? mu : 1)));CHKERRQ(ierr);
 #endif
         if(converged)
             break;

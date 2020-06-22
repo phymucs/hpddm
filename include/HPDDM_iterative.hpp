@@ -33,7 +33,6 @@
 #define HPDDM_TOL(tol, A)      tol
 #define HPDDM_MAX_IT(max, A)   max
 #define HPDDM_IT(i, A)         i
-#define HPDDM_PARAM(pt, index) pt[index]
 #define HPDDM_RET(i)           i
 #else
 #define HPDDM_CHKERRQ(ierr)    CHKERRQ(ierr)
@@ -41,7 +40,6 @@
 #define HPDDM_TOL(tol, A)      ((A._ksp)->rtol)
 #define HPDDM_MAX_IT(max, A)   ((A._ksp)->max_it)
 #define HPDDM_IT(i, A)         ((A._ksp)->its)
-#define HPDDM_PARAM(pt, index) pt[index - 1]
 #define HPDDM_RET(i)           0
 #endif
 
@@ -192,7 +190,7 @@ class IterativeMethod {
             const std::string prefix = A.prefix();
 #if !HPDDM_PETSC
             const Option& opt = *Option::get();
-            m[T == 1 || T == 5 ? 2 : (T == 0 || T == 4 || T == 6 ? 1 : 0)] = std::min(opt.val<short>(prefix + "max_it", 100), std::numeric_limits<short>::max());
+            m[T == 1 || T == 5 ? 2 : (T == 0 || T == 3 || T == 4 || T == 6 ? 1 : 0)] = std::min(opt.val<short>(prefix + "max_it", 100), std::numeric_limits<short>::max());
             if(T == 7) {
                 d[0] = opt.val(prefix + "richardson_damping_factor", 1.0);
                 return;
